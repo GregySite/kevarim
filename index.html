@@ -652,7 +652,7 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 סובבו את המכשיר בתנועת 8</p></div>
 
 <!-- PERMISSION SCREEN -->
-<div id="perm" style="display: none;">
+<div id="perm">
   <div id="perm-icon">✡</div>
   <div id="perm-title">קברים</div>
   <div id="perm-sub" data-i18n="subtitle">מציאות רבודה • גלאי בתי קברות</div>
@@ -848,20 +848,17 @@ function processElements(elements,isGrave,seen){
 }
 
 async function fetchCems(lat,lng,km){
-  const showExport=()=>document.getElementById('export-btn').style.display='flex';
   if(window.KEVARIM_DATA&&window.KEVARIM_DATA.length){
     S.cems=window.KEVARIM_DATA;
     S.dataOK=true;dot('d-dat','ok');
     document.getElementById('cem-count').textContent=filteredCems().length;
-    document.getElementById('cache-icon').textContent='⚡';
-    showExport();backgroundRefresh(lat,lng,km);return;
+    document.getElementById('cache-icon').textContent='⚡';backgroundRefresh(lat,lng,km);return;
   }
   const cached=cacheLoad(lat,lng,km);
   if(cached){
     S.cems=cached;S.dataOK=true;dot('d-dat','ok');
     document.getElementById('cem-count').textContent=filteredCems().length;
-    document.getElementById('cache-icon').textContent='⚡';
-    showExport();backgroundRefresh(lat,lng,km);return;
+    document.getElementById('cache-icon').textContent='⚡';backgroundRefresh(lat,lng,km);return;
   }
   dot('d-dat','wait');
   document.getElementById('loader').style.display='block';
@@ -878,7 +875,6 @@ async function fetchCems(lat,lng,km){
     S.dataOK=true;dot('d-dat','ok');
     document.getElementById('cem-count').textContent=filteredCems().length;
     document.getElementById('loader').style.display='none';
-    showExport();
     if(!S.cems.length) document.getElementById('nores').style.display='block';
   }catch(e){dot('d-dat','err');document.getElementById('loader').style.display='none';console.error(e);return;}
   try{
@@ -894,25 +890,6 @@ async function fetchCems(lat,lng,km){
 // ═══════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════
-async function exportData(){
-  const btn=document.getElementById('export-btn');
-  btn.textContent='…';
-  try{
-    const slim=S.cems.map(c=>({lat:c.lat,lng:c.lng,name:c.name,name2:c.name2||'',sublabel:c.sublabel,isGrave:!!c.isGrave}));
-    const dataScript=document.createElement('script');
-    dataScript.id='kevarim-data-preloaded';
-    dataScript.textContent='window.KEVARIM_DATA='+JSON.stringify(slim)+';';
-    document.head.insertBefore(dataScript,document.head.firstChild);
-    const src='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
-    document.head.removeChild(dataScript);
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(new Blob([src],{type:'text/html;charset=utf-8'}));
-    a.download='kevarim-preloaded.html';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
-    btn.textContent='✓';setTimeout(()=>btn.textContent='⬇',2500);
-  }catch(e){btn.textContent='✗';setTimeout(()=>btn.textContent='⬇',2000);}
-}
 
 async function backgroundRefresh(lat,lng,km){
   if(!lat||!lng) return;
@@ -1245,7 +1222,6 @@ if(window.KEVARIM_DATA&&window.KEVARIM_DATA.length){
   S.cems=window.KEVARIM_DATA;S.dataOK=true;dot('d-dat','ok');
   document.getElementById('cem-count').textContent=filteredCems().length;
   document.getElementById('cache-icon').textContent='⚡';
-  document.getElementById('export-btn').style.display='flex';
 }
 
 document.getElementById('go-btn').addEventListener('click',async()=>{
