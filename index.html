@@ -98,6 +98,8 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 .rbtn:active{background:rgba(200,132,26,.2);}
 #range-val{font-size:11px;color:var(--amber);text-align:center;}
 #range-unit{font-size:9px;color:var(--bone-dim);text-align:center;letter-spacing:.08em;}
+#export-btn{display:none;width:38px;height:38px;background:rgba(8,8,6,.78);border:1px solid rgba(232,224,208,.3);color:var(--amber);font-size:16px;align-items:center;justify-content:center;cursor:pointer;margin-top:10px;-webkit-tap-highlight-color:transparent;}
+#export-btn:active{background:rgba(200,132,26,.2);}
 
 /* ── LOADER / NO RESULTS ── */
 #loader{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:40;text-align:center;display:none;}
@@ -146,6 +148,7 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
     <div id="count-box">
       <div class="lbl" data-i18n="detected"></div>
       <div class="num" id="cem-count">—</div>
+      <div id="cache-icon" style="font-size:10px;color:var(--bone-dim);margin-top:2px;text-align:right;"></div>
     </div>
   </div>
 </div>
@@ -155,6 +158,7 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
   <div id="range-val">5 km</div>
   <div id="range-unit" data-i18n="radius"></div>
   <div class="rbtn" id="r-minus">−</div>
+  <div id="export-btn" onclick="exportData()" title="Exporter les données">⬇</div>
 </div>
 
 <div id="hud-bot">
@@ -294,9 +298,12 @@ const S={
 };
 const RANGES=[0.5,1,2,5,10,20,50];
 let rIdx=3;
-const smoothedPos=new Map(); // cemId → smoothed X pixel
-const pinEls=new Map();      // cemId → DOM element
-const smoothedStem=new Map();// cemId → smoothed stagger stem height
+const smoothedPos=new Map();
+const pinEls=new Map();
+const smoothedStem=new Map();
+
+// ── Hardcoded data (populated via Export button) ──
+const PRELOADED_CEMS = null; // KEVARIM_DATA_INJECT
 
 // ═══════════════════════════════════════
 // MATH
@@ -362,6 +369,54 @@ function updateBar(h){
 }
 
 // ═══════════════════════════════════════
+// CACHE localStorage — instant reload
+// ═══════════════════════════════════════
+const CACHE_KEY='kevarim_v1';
+const CACHE_TTL=30*24*60*60*1000; // 30 jours
+
+function cacheKey(lat,lng,km){
+  // Round to 0.05° (~5km grid) so nearby GPS fixes hit same cache
+  const la=(Math.round(lat/0.05)*0.05).toFixed(2);
+  const lo=(Math.round(lng/0.05)*0.05).toFixed(2);
+  return `${la},${lo},${km}`;
+}
+function cacheLoad(lat,lng,km){
+  try{
+    const raw=localStorage.getItem(CACHE_KEY);
+    if(!raw) return null;
+    const store=JSON.parse(raw);
+    const k=cacheKey(lat,lng,km);
+    const entry=store[k];
+    if(!entry) return null;
+    if(Date.now()-entry.ts>CACHE_TTL) return null;
+    return entry.cems;
+  }catch(e){return null;}
+}
+function cacheSave(lat,lng,km,cems){
+  try{
+    const raw=localStorage.getItem(CACHE_KEY);
+    const store=raw?JSON.parse(raw):{};
+    // Keep max 20 zones to avoid filling storage
+    const keys=Object.keys(store);
+    if(keys.length>=20){
+      // Remove oldest entry
+      const oldest=keys.sort((a,b)=>store[a].ts-store[b].ts)[0];
+      delete store[oldest];
+    }
+    store[cacheKey(lat,lng,km)]={
+      ts:Date.now(),
+      // Strip OSM tags to save space — we only need these fields
+      cems:cems.map(c=>({lat:c.lat,lng:c.lng,name:c.name,sublabel:c.sublabel,isGrave:c.isGrave}))
+    };
+    localStorage.setItem(CACHE_KEY,JSON.stringify(store));
+  }catch(e){console.warn('Cache write failed',e);}
+}
+function cacheIcon(){
+  // Small indicator: ☁ if live, ⚡ if from cache
+  return document.getElementById('cache-icon');
+}
+
+// ═══════════════════════════════════════
 // OVERPASS — 2-phase: cemeteries fast, graves in background
 // ═══════════════════════════════════════
 function pickName(tags){
@@ -386,6 +441,30 @@ function processElements(elements,isGrave,seen){
 }
 
 async function fetchCems(lat,lng,km){
+  // ── Hardcoded data → instant, no network ──
+  if(PRELOADED_CEMS){
+    S.cems=PRELOADED_CEMS;
+    S.dataOK=true;
+    dot('d-dat','ok');
+    document.getElementById('cem-count').textContent=S.cems.length;
+    const ic=document.getElementById('cache-icon');
+    if(ic) ic.textContent='⚡';
+    document.getElementById('export-btn').style.display='flex';
+    return;
+  }
+
+  // ── Instant load from cache if available ──
+  const cached=cacheLoad(lat,lng,km);
+  if(cached){
+    S.cems=cached;
+    S.dataOK=true;
+    dot('d-dat','ok');
+    document.getElementById('cem-count').textContent=S.cems.length;
+    const ic=document.getElementById('cache-icon');
+    if(ic) ic.textContent='⚡';
+    return; // no network call
+  }
+
   dot('d-dat','wait');
   document.getElementById('loader').style.display='block';
   document.getElementById('nores').style.display='none';
@@ -393,16 +472,30 @@ async function fetchCems(lat,lng,km){
   const r=km*1000;
   const seen=new Set();
 
-  // ── Phase 1: cemeteries — display as soon as ready ──
-  const q1=`[out:json][timeout:14];(
+  async function overpass(q){
+    const res=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    if(data.remark&&data.remark.includes('runtime error')) throw new Error('Timeout');
+    return data;
+  }
+
+  const qJew=`[out:json][timeout:30];(
     node["landuse"="cemetery"]["religion"="jewish"](around:${r},${lat},${lng});
     way["landuse"="cemetery"]["religion"="jewish"](around:${r},${lat},${lng});
     node["amenity"="grave_yard"]["religion"="jewish"](around:${r},${lat},${lng});
     way["amenity"="grave_yard"]["religion"="jewish"](around:${r},${lat},${lng});
   );out center;`;
+  const qAll=`[out:json][timeout:30];(
+    node["landuse"="cemetery"](around:${r},${lat},${lng});
+    way["landuse"="cemetery"](around:${r},${lat},${lng});
+    node["amenity"="grave_yard"](around:${r},${lat},${lng});
+    way["amenity"="grave_yard"](around:${r},${lat},${lng});
+  );out center;`;
+
   try{
-    const res=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q1});
-    const data=await res.json();
+    let data=await overpass(qJew);
+    if(!data.elements.length) data=await overpass(qAll);
     S.cems=processElements(data.elements,false,seen);
     S.dataOK=true;
     dot('d-dat','ok');
@@ -412,26 +505,72 @@ async function fetchCems(lat,lng,km){
   }catch(e){
     dot('d-dat','err');
     document.getElementById('loader').style.display='none';
-    console.error('Cemeteries query failed',e);
+    console.error('Cemetery query failed:',e);
     return;
   }
 
-  // ── Phase 2: individual named graves — silent background ──
-  const q2=`[out:json][timeout:12];(
+  // ── Phase 2: individual graves ──
+  const qGraves=`[out:json][timeout:20];(
     node["historic"="tomb"]["name"](around:${r},${lat},${lng});
     node["historic"="grave"]["name"](around:${r},${lat},${lng});
     node["religion"="jewish"]["historic"](around:${r},${lat},${lng});
   );out;`;
   try{
-    const res2=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q2});
-    const data2=await res2.json();
+    const data2=await overpass(qGraves);
     const graves=processElements(data2.elements,true,seen);
     if(graves.length){
       S.cems=[...S.cems,...graves];
       document.getElementById('cem-count').textContent=S.cems.length;
       clearPins();
     }
-  }catch(e){console.warn('Graves query failed',e);}
+  }catch(e){console.warn('Graves query:',e);}
+
+  // ── Save to cache + show export button ──
+  cacheSave(lat,lng,km,S.cems);
+  const ic=document.getElementById('cache-icon');
+  if(ic) ic.textContent='☁';
+  document.getElementById('export-btn').style.display='flex';
+}
+
+// ═══════════════════════════════════════
+// EXPORT — bake data into a standalone file
+// ═══════════════════════════════════════
+async function exportData(){
+  const btn=document.getElementById('export-btn');
+  btn.textContent='…';
+  try{
+    // Fetch our own source (works on file:// in Chrome/Android)
+    const resp=await fetch(location.href);
+    let src=await resp.text();
+    const marker='const PRELOADED_CEMS = null; // KEVARIM_DATA_INJECT';
+    if(!src.includes(marker)){
+      alert('Marker introuvable dans le source.');
+      btn.textContent='⬇';
+      return;
+    }
+    // Strip heavy OSM tags — keep only what the app needs
+    const slim=S.cems.map(c=>({
+      lat:c.lat, lng:c.lng,
+      name:c.name, sublabel:c.sublabel,
+      isGrave:!!c.isGrave
+    }));
+    const injection=`const PRELOADED_CEMS = ${JSON.stringify(slim)}; // KEVARIM_DATA_INJECT`;
+    src=src.replace(marker,injection);
+    const blob=new Blob([src],{type:'text/html;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='kevarim-preloaded.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    btn.textContent='✓';
+    setTimeout(()=>btn.textContent='⬇',2000);
+  }catch(e){
+    console.error('Export failed',e);
+    btn.textContent='✗';
+    setTimeout(()=>btn.textContent='⬇',2000);
+  }
 }
 
 // ═══════════════════════════════════════
