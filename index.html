@@ -539,16 +539,23 @@ async function exportData(){
   const btn=document.getElementById('export-btn');
   btn.textContent='…';
   try{
-    // Fetch our own source (works on file:// in Chrome/Android)
-    const resp=await fetch(location.href);
-    let src=await resp.text();
     const marker='const PRELOADED_CEMS = null; // KEVARIM_DATA_INJECT';
+    // outerHTML always works — no fetch needed, no file:// restriction
+    let src=document.documentElement.outerHTML;
     if(!src.includes(marker)){
-      alert('Marker introuvable dans le source.');
-      btn.textContent='⬇';
-      return;
+      // Fallback: find the script tag containing KEVARIM_DATA_INJECT
+      for(const s of document.querySelectorAll('script')){
+        if(s.textContent.includes('KEVARIM_DATA_INJECT')){
+          // Rebuild HTML with script content replaced
+          src=document.documentElement.outerHTML;
+          break;
+        }
+      }
     }
-    // Strip heavy OSM tags — keep only what the app needs
+    if(!src.includes(marker)){
+      alert('Marker introuvable — contacte le dev.');
+      btn.textContent='⬇'; return;
+    }
     const slim=S.cems.map(c=>({
       lat:c.lat, lng:c.lng,
       name:c.name, sublabel:c.sublabel,
@@ -556,6 +563,8 @@ async function exportData(){
     }));
     const injection=`const PRELOADED_CEMS = ${JSON.stringify(slim)}; // KEVARIM_DATA_INJECT`;
     src=src.replace(marker,injection);
+    // Prepend doctype (outerHTML doesn't include it)
+    src='<!DOCTYPE html>\n'+src;
     const blob=new Blob([src],{type:'text/html;charset=utf-8'});
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
@@ -565,7 +574,7 @@ async function exportData(){
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
     btn.textContent='✓';
-    setTimeout(()=>btn.textContent='⬇',2000);
+    setTimeout(()=>btn.textContent='⬇',2500);
   }catch(e){
     console.error('Export failed',e);
     btn.textContent='✗';
