@@ -31,6 +31,12 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 .pin-name.serif-la{font-family:'Playfair Display',serif;font-style:italic;}
 .pin-dist{font-size:15px;font-weight:700;color:var(--amber);letter-spacing:.05em;}
 .pin-bear{font-size:10px;color:var(--bone-dim);margin-top:3px;letter-spacing:.12em;}
+.pin-sublabel{font-size:10px;color:var(--bone-dim);margin-top:2px;letter-spacing:.08em;}
+/* Individual grave: gold border + glow */
+.pin.is-grave .pin-bubble{border-color:#e8c040;box-shadow:0 0 14px rgba(232,192,64,0.35);}
+.pin.is-grave .pin-spike{border-top-color:#e8c040;}
+.pin.is-grave .pin-dot{background:#e8c040;box-shadow:0 0 12px rgba(232,192,64,0.9);}
+.pin.is-grave .pin-dist{color:#e8c040;}
 .pin-spike{width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-top:16px solid var(--amber);}
 .pin-dot{width:9px;height:9px;background:var(--amber);border-radius:50%;margin-top:3px;box-shadow:0 0 10px rgba(200,132,26,0.8);}
 
@@ -192,6 +198,7 @@ const STRINGS = {
     searching: 'מחפש...',
     noresults: 'לא נמצאו בתי קברות\nבאזור זה',
     cemetery:  'בית קברות',
+    grave:     'קבר',
     dir: {N:'צ',NNE:'צ-צמ',NE:'צ-מ',ENE:'מ-צמ',E:'מ',ESE:'מ-דמ',SE:'ד-מ',SSE:'ד-דמ',S:'ד',SSO:'ד-דמ',SO:'ד-מ',OSO:'מ-דמ',O:'מ',ONO:'מ-צמ',NO:'צ-מ',NNO:'צ-צמ'},
   },
   fr: {
@@ -207,6 +214,7 @@ const STRINGS = {
     searching: 'Recherche en cours…',
     noresults: 'Aucun cimetière\ndans ce périmètre',
     cemetery:  'Cimetière',
+    grave:     'Tombe',
     dir: {N:'N',NNE:'NNE',NE:'NE',ENE:'ENE',E:'E',ESE:'ESE',SE:'SE',SSE:'SSE',S:'S',SSO:'SSO',SO:'SO',OSO:'OSO',O:'O',ONO:'ONO',NO:'NO',NNO:'NNO'},
   },
   en: {
@@ -222,6 +230,7 @@ const STRINGS = {
     searching: 'Searching…',
     noresults: 'No cemeteries found\nin this area',
     cemetery:  'Cemetery',
+    grave:     'Grave',
     dir: {N:'N',NNE:'NNE',NE:'NE',ENE:'ENE',E:'E',ESE:'ESE',SE:'SE',SSE:'SSE',S:'S',SSO:'SSO',SO:'SO',OSO:'OSO',O:'W',ONO:'WNW',NO:'NW',NNO:'NNW'},
   }
 };
@@ -345,32 +354,57 @@ function updateBar(h){
 }
 
 // ═══════════════════════════════════════
-// OVERPASS
+// OVERPASS — Jewish only + named graves
 // ═══════════════════════════════════════
+function pickName(tags){
+  return (lang==='he'&&(tags['name:he']||tags['name']))||
+         (lang==='fr'&&(tags['name:fr']||tags['name']))||
+         (lang==='en'&&(tags['name:en']||tags['name']))||
+         tags.name||null;
+}
+
 async function fetchCems(lat,lng,km){
   dot('d-dat','wait');
   document.getElementById('loader').style.display='block';
   document.getElementById('nores').style.display='none';
   const r=km*1000;
-  const q=`[out:json][timeout:25];(node["landuse"="cemetery"](around:${r},${lat},${lng});way["landuse"="cemetery"](around:${r},${lat},${lng});node["amenity"="grave_yard"](around:${r},${lat},${lng});way["amenity"="grave_yard"](around:${r},${lat},${lng}););out center;`;
+
+  // ① Jewish cemeteries  ② Individual named tombs/graves (tzadikim etc.)
+  const q=`[out:json][timeout:30];(
+    node["landuse"="cemetery"]["religion"="jewish"](around:${r},${lat},${lng});
+    way["landuse"="cemetery"]["religion"="jewish"](around:${r},${lat},${lng});
+    relation["landuse"="cemetery"]["religion"="jewish"](around:${r},${lat},${lng});
+    node["amenity"="grave_yard"]["religion"="jewish"](around:${r},${lat},${lng});
+    way["amenity"="grave_yard"]["religion"="jewish"](around:${r},${lat},${lng});
+    node["historic"="tomb"]["name"](around:${r},${lat},${lng});
+    node["historic"="grave"]["name"](around:${r},${lat},${lng});
+    node["memorial"="grave"]["name"](around:${r},${lat},${lng});
+    node["religion"="jewish"]["historic"](around:${r},${lat},${lng});
+  );out center;`;
+
   try{
     const res=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q});
     const data=await res.json();
     const seen=new Set();
     S.cems=data.elements.map(el=>{
-      const la=el.lat||el.center?.lat,lo=el.lon||el.center?.lon;
+      const la=el.lat||el.center?.lat, lo=el.lon||el.center?.lon;
       if(!la||!lo) return null;
       const key=`${la.toFixed(4)},${lo.toFixed(4)}`;
       if(seen.has(key)) return null;
       seen.add(key);
-      // Pick name in best available language
       const tags=el.tags||{};
-      const name=
-        (lang==='he'&&(tags['name:he']||tags['name']))||
-        (lang==='fr'&&(tags['name:fr']||tags['name']))||
-        (lang==='en'&&(tags['name:en']||tags['name']))||
-        tags.name || t('cemetery');
-      return{lat:la,lng:lo,name,tags};
+      const name=pickName(tags);
+      if(!name) return null;
+
+      // Is this an individual grave/tomb or a whole cemetery?
+      const isGrave=tags.historic==='tomb'||tags.historic==='grave'||
+                    tags.memorial==='grave'||tags.amenity==='grave';
+      // Label shown under the name
+      const sublabel=isGrave
+        ? (tags.religion==='jewish'||true ? '✡ '+t('grave') : t('grave'))
+        : '✡ '+t('cemetery');
+
+      return{lat:la,lng:lo,name,sublabel,isGrave,tags};
     }).filter(Boolean);
     S.dataOK=true;
     dot('d-dat','ok');
@@ -423,9 +457,10 @@ function render(){
     if(!pinEls.has(cemId)){
       // Create pin element once
       const el=document.createElement('div');
-      el.className='pin';
+      el.className='pin'+(c.isGrave?' is-grave':'');
       el.innerHTML=`<div class="pin-bubble" dir="${isHe?'rtl':'ltr'}">
         <div class="pin-name ${isHe?'serif-he':'serif-la'}">${c.name}</div>
+        <div class="pin-sublabel">${c.sublabel}</div>
         <div class="pin-dist"></div>
         <div class="pin-bear"></div>
       </div>
