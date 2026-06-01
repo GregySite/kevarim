@@ -60,11 +60,16 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 .lang-btn:not(:last-child){border-right:none;}
 .lang-btn.active{background:rgba(200,132,26,.25);color:var(--amber);border-color:var(--amber);}
 
-/* ── CROSSHAIR ── */
-#xhair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:22;pointer-events:none;opacity:.35;}
-#xhair::before{content:'';position:absolute;width:28px;height:1px;background:var(--bone);top:50%;left:50%;transform:translate(-50%,-50%);}
-#xhair::after{content:'';position:absolute;width:1px;height:28px;background:var(--bone);top:50%;left:50%;transform:translate(-50%,-50%);}
-#xhair-ring{position:absolute;width:56px;height:56px;border:1px solid var(--bone);border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);}
+/* ── RETICLE ── */
+#xhair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:22;pointer-events:none;width:56px;height:56px;}
+#xhair-ring{position:absolute;inset:0;border:1px solid rgba(232,224,208,0.38);border-radius:50%;}
+#xhair-dot{position:absolute;width:5px;height:5px;background:rgba(232,224,208,0.5);border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);}
+/* four tiny corner marks, no connecting lines */
+#xhair-tl,#xhair-tr,#xhair-bl,#xhair-br{position:absolute;width:7px;height:7px;opacity:.45;}
+#xhair-tl{top:4px;left:4px;border-top:1px solid var(--bone);border-left:1px solid var(--bone);}
+#xhair-tr{top:4px;right:4px;border-top:1px solid var(--bone);border-right:1px solid var(--bone);}
+#xhair-bl{bottom:4px;left:4px;border-bottom:1px solid var(--bone);border-left:1px solid var(--bone);}
+#xhair-br{bottom:4px;right:4px;border-bottom:1px solid var(--bone);border-right:1px solid var(--bone);}
 
 /* ── COMPASS BAR ── */
 #hud-bot{position:fixed;bottom:0;left:0;right:0;z-index:30;padding:0 0 28px;}
@@ -121,7 +126,7 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 <video id="camera" autoplay playsinline muted></video>
 <div id="scanlines"></div>
 <div id="vignette"></div>
-<div id="xhair"><div id="xhair-ring"></div></div>
+<div id="xhair"><div id="xhair-ring"></div><div id="xhair-dot"></div><div id="xhair-tl"></div><div id="xhair-tr"></div><div id="xhair-bl"></div><div id="xhair-br"></div></div>
 <div id="ar-overlay"></div>
 
 <div id="loader"><div id="loader-txt" data-i18n="searching"></div></div>
@@ -357,64 +362,70 @@ function updateBar(h){
 }
 
 // ═══════════════════════════════════════
-// OVERPASS — Jewish only + named graves
+// OVERPASS — 2-phase: cemeteries fast, graves in background
 // ═══════════════════════════════════════
-function pickName(tags){
-  return (lang==='he'&&(tags['name:he']||tags['name']))||
-         (lang==='fr'&&(tags['name:fr']||tags['name']))||
-         (lang==='en'&&(tags['name:en']||tags['name']))||
-         tags.name||null;
+function processElements(elements,isGrave,seen){
+  return elements.map(el=>{
+    const la=el.lat||el.center?.lat, lo=el.lon||el.center?.lon;
+    if(!la||!lo) return null;
+    const key=`${la.toFixed(4)},${lo.toFixed(4)}`;
+    if(seen.has(key)) return null;
+    seen.add(key);
+    const tags=el.tags||{};
+    const name=pickName(tags);
+    if(!name) return null;
+    const sublabel=isGrave?'✡ '+t('grave'):'✡ '+t('cemetery');
+    return{lat:la,lng:lo,name,sublabel,isGrave,tags};
+  }).filter(Boolean);
 }
 
 async function fetchCems(lat,lng,km){
   dot('d-dat','wait');
   document.getElementById('loader').style.display='block';
   document.getElementById('nores').style.display='none';
+  S.dataOK=false;
   const r=km*1000;
+  const seen=new Set();
 
-  // ① Jewish cemeteries  ② Individual named tombs/graves (tzadikim etc.)
-  const q=`[out:json][timeout:30];(
+  // ── Phase 1: cemeteries — display as soon as ready ──
+  const q1=`[out:json][timeout:14];(
     node["landuse"="cemetery"]["religion"="jewish"](around:${r},${lat},${lng});
     way["landuse"="cemetery"]["religion"="jewish"](around:${r},${lat},${lng});
-    relation["landuse"="cemetery"]["religion"="jewish"](around:${r},${lat},${lng});
     node["amenity"="grave_yard"]["religion"="jewish"](around:${r},${lat},${lng});
     way["amenity"="grave_yard"]["religion"="jewish"](around:${r},${lat},${lng});
-    node["historic"="tomb"]["name"](around:${r},${lat},${lng});
-    node["historic"="grave"]["name"](around:${r},${lat},${lng});
-    node["memorial"="grave"]["name"](around:${r},${lat},${lng});
-    node["religion"="jewish"]["historic"](around:${r},${lat},${lng});
   );out center;`;
-
   try{
-    const res=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q});
+    const res=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q1});
     const data=await res.json();
-    const seen=new Set();
-    S.cems=data.elements.map(el=>{
-      const la=el.lat||el.center?.lat, lo=el.lon||el.center?.lon;
-      if(!la||!lo) return null;
-      const key=`${la.toFixed(4)},${lo.toFixed(4)}`;
-      if(seen.has(key)) return null;
-      seen.add(key);
-      const tags=el.tags||{};
-      const name=pickName(tags);
-      if(!name) return null;
-
-      // Is this an individual grave/tomb or a whole cemetery?
-      const isGrave=tags.historic==='tomb'||tags.historic==='grave'||
-                    tags.memorial==='grave'||tags.amenity==='grave';
-      // Label shown under the name
-      const sublabel=isGrave
-        ? (tags.religion==='jewish'||true ? '✡ '+t('grave') : t('grave'))
-        : '✡ '+t('cemetery');
-
-      return{lat:la,lng:lo,name,sublabel,isGrave,tags};
-    }).filter(Boolean);
+    S.cems=processElements(data.elements,false,seen);
     S.dataOK=true;
     dot('d-dat','ok');
     document.getElementById('cem-count').textContent=S.cems.length;
+    document.getElementById('loader').style.display='none';
     if(!S.cems.length) document.getElementById('nores').style.display='block';
-  }catch(e){dot('d-dat','err');console.error(e);}
-  document.getElementById('loader').style.display='none';
+  }catch(e){
+    dot('d-dat','err');
+    document.getElementById('loader').style.display='none';
+    console.error('Cemeteries query failed',e);
+    return;
+  }
+
+  // ── Phase 2: individual named graves — silent background ──
+  const q2=`[out:json][timeout:12];(
+    node["historic"="tomb"]["name"](around:${r},${lat},${lng});
+    node["historic"="grave"]["name"](around:${r},${lat},${lng});
+    node["religion"="jewish"]["historic"](around:${r},${lat},${lng});
+  );out;`;
+  try{
+    const res2=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q2});
+    const data2=await res2.json();
+    const graves=processElements(data2.elements,true,seen);
+    if(graves.length){
+      S.cems=[...S.cems,...graves];
+      document.getElementById('cem-count').textContent=S.cems.length;
+      clearPins();
+    }
+  }catch(e){console.warn('Graves query failed',e);}
 }
 
 // ═══════════════════════════════════════
@@ -431,11 +442,9 @@ function render(){
   if(!S.gpsOK||!S.dataOK){clearPins();return;}
   const W=window.innerWidth, H=window.innerHeight;
   const isHe=lang==='he';
+  const PIN_W=200, FULL_H=120, GAP=8;
 
-  // Pin geometry constants (estimated)
-  const PIN_W=200, BUBBLE_H=88, FULL_H=118, PAD=12;
-
-  // ① Compute visible pins
+  // ① Visible pins with bearing
   const visible=S.cems.map(c=>{
     const dist=haversine(S.lat,S.lng,c.lat,c.lng);
     const bear=bearing(S.lat,S.lng,c.lat,c.lng);
@@ -443,60 +452,62 @@ function render(){
     return{...c,dist,bear,rel};
   }).filter(c=>Math.abs(c.rel)<=S.FOV/2+5);
 
-  // ② Nearest pins have priority — they stay lower, farther ones go up
-  visible.sort((a,b)=>a.dist-b.dist);
-
-  // ③ Smooth X position per pin
+  // ② Raw bearing X (unsmoothed — used for grouping)
   for(const c of visible){
     c._id=`${c.lat.toFixed(4)},${c.lng.toFixed(4)}`;
-    const targetX=W/2+(c.rel/(S.FOV/2))*(W/2);
-    const prev=smoothedPos.has(c._id)?smoothedPos.get(c._id):targetX;
-    smoothedPos.set(c._id, prev+smoothAlpha(c.dist)*(targetX-prev));
-    c._x=smoothedPos.get(c._id);
+    c._bx=W/2+(c.rel/(S.FOV/2))*(W/2); // true bearing X
     const t2=Math.min(c.dist/S.rangeKm,1);
-    c._groundY=H*(0.60+t2*0.10);  // tip of spike = "ground" on screen
-    c._op=Math.max(0.5,1-t2*0.38);
+    c._op=Math.max(0.55,1-t2*0.32);
   }
 
-  // ④ Collision resolution — compute target stem height for each pin
-  //    Stem lifts the bubble upward; the spike+dot+stem+gnd anchor to groundY
-  const targetStem={};
-  for(const c of visible) targetStem[c._id]=0;
-
-  for(let pass=0;pass<8;pass++){
-    for(let i=0;i<visible.length;i++){
-      for(let j=0;j<i;j++){
-        const a=visible[j], b=visible[i]; // a = higher priority (nearer)
-        if(Math.abs(a._x-b._x)>=PIN_W+PAD) continue;
-        // Bubble top Y of each pin (smaller Y = higher on screen)
-        const aTop=a._groundY-FULL_H-targetStem[a._id];
-        const bTop=b._groundY-FULL_H-targetStem[b._id];
-        const aBubBot=aTop+BUBBLE_H;
-        const bBubBot=bTop+BUBBLE_H;
-        if(aTop<bBubBot+PAD && bTop<aBubBot+PAD){
-          // Push b's bubble above a's bubble
-          const needed=(aBubBot+PAD)-(b._groundY-FULL_H);
-          if(needed>targetStem[b._id]) targetStem[b._id]=needed;
-        }
-      }
+  // ③ Sweep-line grouping by bearing X
+  //    Pins within PIN_W of each other → same column
+  const byX=[...visible].sort((a,b)=>a._bx-b._bx);
+  const groups=[];
+  if(byX.length){
+    let grp=[byX[0]];
+    for(let i=1;i<byX.length;i++){
+      if(byX[i]._bx-byX[i-1]._bx<PIN_W+GAP) grp.push(byX[i]);
+      else{groups.push(grp);grp=[byX[i]];}
     }
+    groups.push(grp);
   }
 
-  // ⑤ Smooth stem heights (fast rise, slow retract)
+  // ④ Within each group:
+  //    • sort by dist DESC → furthest = index 0 = TOP
+  //    • sort by dist ASC  → nearest  = last  = BOTTOM
+  //    • column X = average bearing X of members
+  const GROUND_Y=H*0.72;
+  for(const grp of groups){
+    grp.sort((a,b)=>b.dist-a.dist); // furthest first = top of stack
+    const colX=grp.reduce((s,c)=>s+c._bx,0)/grp.length;
+    const total=grp.length;
+    grp.forEach((c,idx)=>{
+      c._colX=colX;
+      // idx=0 is furthest (top), idx=total-1 is nearest (bottom)
+      // bottom pin's `top` = GROUND_Y; each pin above is offset by FULL_H+GAP
+      c._targetOff=(total-1-idx)*(FULL_H+GAP);
+      c._isBottom=(idx===total-1);
+    });
+  }
+
+  // ⑤ Smooth display X (toward column center) + vertical offset
   for(const c of visible){
-    const target=targetStem[c._id];
-    const prev=smoothedStem.has(c._id)?smoothedStem.get(c._id):target;
-    const alpha=target>prev?0.2:0.07;
-    smoothedStem.set(c._id, prev+alpha*(target-prev));
-    c._stemH=Math.max(0,smoothedStem.get(c._id));
+    const prevX=smoothedPos.has(c._id)?smoothedPos.get(c._id):c._colX;
+    smoothedPos.set(c._id, prevX+smoothAlpha(c.dist)*(c._colX-prevX));
+    c._x=smoothedPos.get(c._id);
+
+    const prevOff=smoothedStem.has(c._id)?smoothedStem.get(c._id):c._targetOff;
+    const ao=c._targetOff>prevOff?0.18:0.09;
+    smoothedStem.set(c._id, prevOff+ao*(c._targetOff-prevOff));
+    c._yOff=smoothedStem.get(c._id);
   }
 
-  // ⑥ Build / update DOM pins
+  // ⑥ Build / update DOM
   const visibleIds=new Set();
   for(const c of visible){
     visibleIds.add(c._id);
-    const stemH=Math.round(c._stemH);
-    const staggered=stemH>3;
+    const pinTop=GROUND_Y-c._yOff;
 
     if(!pinEls.has(c._id)){
       const el=document.createElement('div');
@@ -508,38 +519,30 @@ function render(){
         <div class="pin-bear"></div>
       </div>
       <div class="pin-spike"></div>
-      <div class="pin-dot"></div>
-      <div class="pin-stem"></div>
-      <div class="pin-gnd"></div>`;
+      <div class="pin-dot"></div>`;
       overlay.appendChild(el);
       pinEls.set(c._id,el);
     }
-
     const el=pinEls.get(c._id);
     el.style.left=`${c._x.toFixed(1)}px`;
-    el.style.top=`${c._groundY.toFixed(1)}px`;
+    el.style.top=`${pinTop.toFixed(1)}px`;
     el.style.opacity=c._op;
     el.querySelector('.pin-dist').textContent=fmtDist(c.dist);
     el.querySelector('.pin-bear').textContent=`${Math.round(c.bear)}° ${cardDir(c.bear)}`;
-    const stemEl=el.querySelector('.pin-stem');
-    const gndEl=el.querySelector('.pin-gnd');
-    if(staggered){
-      stemEl.style.cssText=`display:block;height:${stemH}px`;
-      gndEl.style.display='block';
-    } else {
-      stemEl.style.display='none';
-      gndEl.style.display='none';
-    }
+    // Spike + dot only on bottom pin (closest)
+    el.querySelector('.pin-spike').style.display=c._isBottom?'':'none';
+    el.querySelector('.pin-dot').style.display=c._isBottom?'':'none';
   }
 
-  // ⑦ Remove pins that left the FOV
-  for(const [id,el] of pinEls){
+  // ⑦ Remove pins that left FOV
+  for(const[id,el] of pinEls){
     if(!visibleIds.has(id)){
       el.remove(); pinEls.delete(id);
       smoothedPos.delete(id); smoothedStem.delete(id);
     }
   }
 }
+
 
 // ═══════════════════════════════════════
 // ORIENTATION
