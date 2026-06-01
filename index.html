@@ -846,6 +846,14 @@ document.getElementById('radar-canvas')?.remove();
 buildBar();
 applyLang();
 
+// Montrer le bouton ⬇ immédiatement si les données sont déjà disponibles
+if(window.KEVARIM_DATA&&window.KEVARIM_DATA.length){
+  S.cems=window.KEVARIM_DATA;S.dataOK=true;dot('d-dat','ok');
+  document.getElementById('cem-count').textContent=filteredCems().length;
+  document.getElementById('cache-icon').textContent='⚡';
+  document.getElementById('export-btn').style.display='flex';
+}
+
 document.getElementById('go-btn').addEventListener('click',async()=>{
   if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
     try{const r=await DeviceOrientationEvent.requestPermission();if(r!=='granted')dot('d-cmp','err');}catch(e){dot('d-cmp','err');}
