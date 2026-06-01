@@ -302,8 +302,9 @@ const smoothedPos=new Map();
 const pinEls=new Map();
 const smoothedStem=new Map();
 
-// ── Hardcoded data (populated via Export button) ──
-const PRELOADED_CEMS = null; // KEVARIM_DATA_INJECT
+// ── Hardcoded data — injected by export ──
+// (window.KEVARIM_DATA is set by the exported <script> block)
+
 
 // ═══════════════════════════════════════
 // MATH
@@ -441,9 +442,9 @@ function processElements(elements,isGrave,seen){
 }
 
 async function fetchCems(lat,lng,km){
-  // ── Hardcoded data → instant, no network ──
-  if(PRELOADED_CEMS){
-    S.cems=PRELOADED_CEMS;
+  // ── Preloaded data (exported version) → instant ──
+  if(window.KEVARIM_DATA && window.KEVARIM_DATA.length){
+    S.cems=window.KEVARIM_DATA;
     S.dataOK=true;
     dot('d-dat','ok');
     document.getElementById('cem-count').textContent=S.cems.length;
@@ -539,32 +540,24 @@ async function exportData(){
   const btn=document.getElementById('export-btn');
   btn.textContent='…';
   try{
-    const marker='const PRELOADED_CEMS = null; // KEVARIM_DATA_INJECT';
-    // outerHTML always works — no fetch needed, no file:// restriction
-    let src=document.documentElement.outerHTML;
-    if(!src.includes(marker)){
-      // Fallback: find the script tag containing KEVARIM_DATA_INJECT
-      for(const s of document.querySelectorAll('script')){
-        if(s.textContent.includes('KEVARIM_DATA_INJECT')){
-          // Rebuild HTML with script content replaced
-          src=document.documentElement.outerHTML;
-          break;
-        }
-      }
-    }
-    if(!src.includes(marker)){
-      alert('Marker introuvable — contacte le dev.');
-      btn.textContent='⬇'; return;
-    }
     const slim=S.cems.map(c=>({
       lat:c.lat, lng:c.lng,
       name:c.name, sublabel:c.sublabel,
       isGrave:!!c.isGrave
     }));
-    const injection=`const PRELOADED_CEMS = ${JSON.stringify(slim)}; // KEVARIM_DATA_INJECT`;
-    src=src.replace(marker,injection);
-    // Prepend doctype (outerHTML doesn't include it)
-    src='<!DOCTYPE html>\n'+src;
+
+    // Inject a real <script> node into <head> — outerHTML will include it
+    const dataScript=document.createElement('script');
+    dataScript.id='kevarim-data-preloaded';
+    dataScript.textContent='window.KEVARIM_DATA='+JSON.stringify(slim)+';';
+    document.head.insertBefore(dataScript, document.head.firstChild);
+
+    // Grab full serialized HTML (now includes the data script)
+    const src='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+
+    // Clean up — remove injected node from live page
+    document.head.removeChild(dataScript);
+
     const blob=new Blob([src],{type:'text/html;charset=utf-8'});
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
@@ -573,6 +566,7 @@ async function exportData(){
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
+
     btn.textContent='✓';
     setTimeout(()=>btn.textContent='⬇',2500);
   }catch(e){
