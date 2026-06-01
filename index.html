@@ -463,7 +463,8 @@ async function fetchCems(lat,lng,km){
     document.getElementById('cem-count').textContent=S.cems.length;
     const ic=document.getElementById('cache-icon');
     if(ic) ic.textContent='⚡';
-    return; // no network call
+    document.getElementById('export-btn').style.display='flex';
+    return;
   }
 
   dot('d-dat','wait');
@@ -502,6 +503,7 @@ async function fetchCems(lat,lng,km){
     dot('d-dat','ok');
     document.getElementById('cem-count').textContent=S.cems.length;
     document.getElementById('loader').style.display='none';
+    document.getElementById('export-btn').style.display='flex';
     if(!S.cems.length) document.getElementById('nores').style.display='block';
   }catch(e){
     dot('d-dat','err');
