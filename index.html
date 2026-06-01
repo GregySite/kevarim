@@ -364,6 +364,12 @@ function updateBar(h){
 // ═══════════════════════════════════════
 // OVERPASS — 2-phase: cemeteries fast, graves in background
 // ═══════════════════════════════════════
+function pickName(tags){
+  return (lang==='he'&&(tags['name:he']||tags['name']))||
+         (lang==='fr'&&(tags['name:fr']||tags['name']))||
+         (lang==='en'&&(tags['name:en']||tags['name']))||
+         tags.name||null;
+}
 function processElements(elements,isGrave,seen){
   return elements.map(el=>{
     const la=el.lat||el.center?.lat, lo=el.lon||el.center?.lon;
