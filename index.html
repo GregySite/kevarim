@@ -77,7 +77,6 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 #list-btn{width:38px;height:38px;background:rgba(8,8,6,.78);border:1px solid rgba(232,224,208,.25);color:var(--bone-dim);font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-top:4px;-webkit-tap-highlight-color:transparent;}
 #list-btn.active{background:rgba(200,132,26,.2);border-color:var(--amber);color:var(--amber);}
 
-
 /* ── RADAR ── */
 #radar-wrap{position:fixed;left:14px;bottom:130px;z-index:25;opacity:.85;}
 #radar-canvas{display:block;border-radius:50%;border:1px solid rgba(232,224,208,.2);}
@@ -166,10 +165,9 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 
 /* ── PULL TO REFRESH ── */
 #ptr{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:center;height:0;overflow:hidden;background:rgba(8,8,6,0.92);pointer-events:none;}
-#ptr-inner{display:flex;align-items:center;gap:10px;opacity:0;transition:opacity .2s;}
+#ptr-inner{display:flex;align-items:center;gap:10px;opacity:0;transition:opacity .15s;}
 #ptr-icon{font-size:20px;color:var(--amber);display:inline-block;}
 #ptr-txt{font-size:10px;color:var(--bone-dim);letter-spacing:.15em;text-transform:uppercase;}
-@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body style="direction: rtl;">
@@ -657,7 +655,7 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 סובבו את המכשיר בתנועת 8</p></div>
 
 <!-- PERMISSION SCREEN -->
-<div id="perm" style="display: none;">
+<div id="perm">
   <div id="perm-icon">✡</div>
   <div id="perm-title">קברים</div>
   <div id="perm-sub" data-i18n="subtitle">מציאות רבודה • גלאי בתי קברות</div>
@@ -1220,6 +1218,12 @@ document.getElementById('radar-canvas')?.remove();
 buildBar();
 applyLang();
 
+// Preloaded data ready
+if(window.KEVARIM_DATA&&window.KEVARIM_DATA.length){
+  S.cems=window.KEVARIM_DATA;S.dataOK=true;dot('d-dat','ok');
+  document.getElementById('cem-count').textContent=filteredCems().length;
+  document.getElementById('cache-icon').textContent='⚡';
+}
 
 document.getElementById('go-btn').addEventListener('click',async()=>{
   if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
@@ -1236,8 +1240,7 @@ document.getElementById('go-btn').addEventListener('click',async()=>{
 // PULL TO REFRESH
 // ═══════════════════════════════════════
 (function(){
-  var startY=0, pulling=false, triggered=false;
-  var THRESHOLD=70;
+  var startY=0, pulling=false, triggered=false, THRESHOLD=70;
   var ptr=document.getElementById('ptr');
   var inner=document.getElementById('ptr-inner');
   var icon=document.getElementById('ptr-icon');
@@ -1245,66 +1248,64 @@ document.getElementById('go-btn').addEventListener('click',async()=>{
 
   function reset(){
     triggered=false; pulling=false;
-    ptr.style.height='0px';
+    ptr.style.height='0';
     inner.style.opacity='0';
+    icon.style.transform='';
     icon.style.animation='';
-    icon.textContent='↓';
+    icon.textContent='\u2193';
     txt.textContent='';
   }
 
   function doRefresh(){
     triggered=true;
     icon.style.animation='spin .8s linear infinite';
-    icon.textContent='↻';
+    icon.textContent='\u21BB';
     if(!S.lat||!S.lng){reset();return;}
     var r=S.rangeKm*1000;
     var seen=new Set();
-    function op(q){
-      return fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q})
-        .then(function(res){if(!res.ok)throw new Error('HTTP '+res.status);return res.json();});
-    }
     var qJ='[out:json][timeout:30];(node["landuse"="cemetery"]["religion"="jewish"](around:'+r+','+S.lat+','+S.lng+');way["landuse"="cemetery"]["religion"="jewish"](around:'+r+','+S.lat+','+S.lng+'););out center;';
     var qA='[out:json][timeout:30];(node["landuse"="cemetery"](around:'+r+','+S.lat+','+S.lng+');way["landuse"="cemetery"](around:'+r+','+S.lat+','+S.lng+'););out center;';
-    op(qJ).then(function(d){
-      return (d.elements.length?Promise.resolve(d):op(qA));
-    }).then(function(d){
-      var fresh=processElements(d.elements,false,seen);
-      S.cems=fresh; S.dataOK=true; dot('d-dat','ok');
+    function op(q){return fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q}).then(function(r){if(!r.ok)throw new Error('err');return r.json();});}
+    op(qJ).then(function(d){return d.elements.length?d:op(qA);})
+    .then(function(d){
+      S.cems=processElements(d.elements,false,seen);
+      S.dataOK=true; dot('d-dat','ok');
       document.getElementById('cem-count').textContent=filteredCems().length;
-      document.getElementById('cache-icon').textContent='☁';
+      document.getElementById('cache-icon').textContent='\u2601';
       clearPins();
       reset();
-    }).catch(function(e){dot('d-dat','err');reset();});
+    }).catch(function(){dot('d-dat','err');reset();});
   }
 
   document.addEventListener('touchstart',function(e){
-    if(document.getElementById('list-view').classList.contains('open')) return;
-    if(document.getElementById('detail').classList.contains('open')) return;
-    startY=e.touches[0].clientY;
-    pulling=false; triggered=false;
+    if(document.getElementById('list-view').classList.contains('open'))return;
+    if(document.getElementById('detail').classList.contains('open'))return;
+    startY=e.touches[0].clientY; pulling=false; triggered=false;
   },{passive:true});
 
   document.addEventListener('touchmove',function(e){
-    if(triggered) return;
-    if(document.getElementById('list-view').classList.contains('open')) return;
-    if(document.getElementById('detail').classList.contains('open')) return;
-    var dy=e.touches[0].clientY - startY;
-    if(dy<8) return;
+    if(triggered)return;
+    if(document.getElementById('list-view').classList.contains('open'))return;
+    if(document.getElementById('detail').classList.contains('open'))return;
+    var dy=e.touches[0].clientY-startY;
+    if(dy<8)return;
     pulling=true;
-    var h=Math.min(dy*0.45, THRESHOLD+12);
-    ptr.style.height=h+'px';
+    ptr.style.height=Math.min(dy*0.45,THRESHOLD+14)+'px';
     inner.style.opacity=Math.min(dy/(THRESHOLD*0.6),1).toString();
     icon.style.transform='rotate('+(Math.min(dy/THRESHOLD,1)*180)+'deg)';
-    icon.textContent=dy>THRESHOLD?'↺':'↓';
+    icon.textContent=dy>THRESHOLD?'\u21BA':'\u2193';
     txt.textContent=dy>THRESHOLD?t('searching'):'';
   },{passive:true});
 
   document.addEventListener('touchend',function(e){
-    if(!pulling||triggered) return;
-    var dy=e.changedTouches[0].clientY - startY;
-    if(dy>THRESHOLD) doRefresh();
+    if(!pulling||triggered)return;
+    if(e.changedTouches[0].clientY-startY>THRESHOLD)doRefresh();
     else reset();
   },{passive:true});
+
+  var st=document.createElement('style');
+  st.textContent='@keyframes spin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(st);
 })();
 </script>
 
