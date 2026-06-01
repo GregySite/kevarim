@@ -750,7 +750,7 @@ const pinEls=new Map();
 const smoothedStem=new Map();
 
 // ── Hardcoded data — injected by export ──
-// (window.KEVARIM_DATA is set by the exported <script> block)
+// (window.KEVARIM_DATA is set by the exported <script>
 
 function filteredCems(){
   if(filterMode==='all') return S.cems;
@@ -888,8 +888,6 @@ async function fetchCems(lat,lng,km){
   }catch(e){}
   cacheSave(lat,lng,km,S.cems);
   document.getElementById('cache-icon').textContent='☁';
-}
-
 }
 
 async function backgroundRefresh(lat,lng,km){
