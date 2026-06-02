@@ -176,7 +176,7 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 #desktop-block .db-icon{font-size:64px;margin-bottom:28px;}
 #desktop-block .db-title{font-family:'Frank Ruhl Libre',serif;font-size:32px;margin-bottom:12px;}
 #desktop-block .db-sub{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--bone-dim);}
-@media(hover:hover)and(pointer:fine){#desktop-block{display:flex;}}
+
 </style>
 </head>
 <body>
@@ -808,7 +808,19 @@ function setupGPS(){
     const first=!S.gpsOK,moved=S.lat&&haversine(S.lat,S.lng,la,lo)>0.05;
     S.lat=la;S.lng=lo;S.gpsOK=true;dot('d-gps','ok');
     if(first||moved) fetchCems(S.lat,S.lng,S.rangeKm);
-  },e=>{console.error(e);dot('d-gps','err');},{enableHighAccuracy:true,maximumAge:8000,timeout:15000});
+  },e=>{
+    dot('d-gps','err');
+    if(e.code===1){ // PERMISSION_DENIED
+      if(confirm(lang==='he'?'יש לאפשר גישה למיקום בהגדרות הדפדפן':
+                 lang==='fr'?'Veuillez autoriser la localisation dans les paramètres du navigateur':
+                 'Please enable location access in your browser settings')){
+        // Re-trigger permission request
+        navigator.geolocation.getCurrentPosition(pos=>{
+          S.lat=pos.coords.latitude;S.lng=pos.coords.longitude;S.gpsOK=true;dot('d-gps','ok');
+          fetchCems(S.lat,S.lng,S.rangeKm);
+        },()=>{},{ enableHighAccuracy:true });
+      }
+    }},{enableHighAccuracy:true,maximumAge:8000,timeout:15000});
 }
 
 // ═══════════════════════════════════════
