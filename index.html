@@ -529,11 +529,11 @@ function render(){
     const bear=bearing(S.lat,S.lng,c.lat,c.lng);
     const rel=angDiff(bear,S.heading);
     return{...c,dist,bear,rel};
-  }).filter(c=>Math.abs(c.rel)<=S.FOV/2+5);
+  }).filter(c=>Math.abs(c.rel)<=S.FOV/2+8 && c.dist<=S.rangeKm);
 
   for(const c of visible){
     c._id=`${c.lat.toFixed(4)},${c.lng.toFixed(4)}`;
-    c._bx=W/2+(c.rel/(S.FOV/2))*(W/2);
+    c._bx=W/2+(c.rel/S.FOV)*W;
     c._op=Math.max(0.55,1-Math.min(c.dist/S.rangeKm,1)*0.32);
   }
 
