@@ -755,14 +755,16 @@ function checkCalibration(h){
 // ORIENTATION
 // ═══════════════════════════════════════
 function computeHeading(alpha, beta, gamma){
-  // iOS webkitCompassHeading is already tilt-compensated — not used here
-  // Android: compute true azimuth of back camera from full 3D orientation
-  // Formula derived from rotation matrix R = Rz(a)*Rx(b)*Ry(g) applied to (0,0,-1)
+  // R = Rz(α)·Rx(β)·Ry(γ) applied to back-camera vector (0,0,-1)
+  // Correct signs derived from full matrix multiplication
   const r=Math.PI/180;
-  const a=alpha*r, b=beta*r, g=gamma*r;
-  const east  = -Math.sin(g)*Math.cos(a) + Math.cos(g)*Math.sin(b)*Math.sin(a);
-  const north =  Math.sin(g)*Math.sin(a) + Math.cos(g)*Math.sin(b)*Math.cos(a);
-  return (Math.atan2(east,north)*180/Math.PI+360)%360;
+  const a=alpha*r, b=(beta||0)*r, g=(gamma||0)*r;
+  const east  = -Math.sin(g)*Math.cos(a) - Math.cos(g)*Math.sin(b)*Math.sin(a);
+  const north = -Math.sin(g)*Math.sin(a) + Math.cos(g)*Math.sin(b)*Math.cos(a);
+  // Degenerate: phone flat, camera points up/down — fall back to yaw-only
+  const mag = Math.sqrt(east*east + north*north);
+  if(mag < 0.15) return (360 - alpha % 360 + 360) % 360;
+  return (Math.atan2(east, north)*180/Math.PI + 360) % 360;
 }
 
 function setupOrientation(){
