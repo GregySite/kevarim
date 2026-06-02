@@ -171,12 +171,12 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 #ptr-icon{font-size:20px;color:var(--amber);}
 #ptr-txt{font-size:10px;color:var(--bone-dim);letter-spacing:.15em;}
 
-/* ── DESKTOP BLOCK ── */
-#desktop-block{display:none;position:fixed;inset:0;z-index:200;background:var(--dark);flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px;}
-#desktop-block .db-icon{font-size:64px;margin-bottom:28px;}
-#desktop-block .db-title{font-family:'Frank Ruhl Libre',serif;font-size:32px;margin-bottom:12px;}
-#desktop-block .db-sub{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--bone-dim);}
 
+
+/* ── MOBILE BANNER ── */
+#mobile-banner{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:200;background:rgba(8,8,6,0.92);border:1px solid var(--amber);padding:10px 18px 10px 14px;display:none;align-items:center;gap:12px;max-width:320px;white-space:nowrap;}
+#mobile-banner span{font-size:11px;color:var(--bone-dim);letter-spacing:.08em;}
+#mobile-banner button{background:none;border:none;color:var(--bone-dim);font-size:16px;cursor:pointer;padding:0;line-height:1;}
 </style>
 </head>
 <body>
@@ -861,6 +861,11 @@ document.getElementById('radar-canvas')?.remove();
 buildBar();
 applyLang();
 
+// Show mobile hint on non-touch devices
+if(!window.matchMedia('(pointer:coarse)').matches){
+  document.getElementById('mobile-banner').style.display='flex';
+}
+
 
 document.getElementById('go-btn').addEventListener('click',async()=>{
   if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
@@ -928,10 +933,6 @@ document.getElementById('go-btn').addEventListener('click',async()=>{
 </script>
 <div id="ptr"><div id="ptr-inner"><span id="ptr-icon">↓</span><span id="ptr-txt"></span></div></div>
 
-<div id="desktop-block">
-  <div class="db-icon">📱</div>
-  <div class="db-title">קברים</div>
-  <div class="db-sub">This app requires a mobile device<br><br>פתח במכשיר נייד • Ouvrez sur mobile</div>
-</div>
+<div id="mobile-banner"><span>📱 Best experienced on mobile</span><button onclick="this.parentElement.style.display='none'">×</button></div>
 </body>
 </html>
