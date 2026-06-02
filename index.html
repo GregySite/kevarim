@@ -173,10 +173,6 @@ body{background:var(--dark);color:var(--bone);font-family:'Space Mono',monospace
 
 
 
-/* ── MOBILE BANNER ── */
-#mobile-banner{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:200;background:rgba(8,8,6,0.92);border:1px solid var(--amber);padding:10px 18px 10px 14px;display:none;align-items:center;gap:12px;max-width:320px;white-space:nowrap;}
-#mobile-banner span{font-size:11px;color:var(--bone-dim);letter-spacing:.08em;}
-#mobile-banner button{background:none;border:none;color:var(--bone-dim);font-size:16px;cursor:pointer;padding:0;line-height:1;}
 </style>
 </head>
 <body>
@@ -861,10 +857,7 @@ document.getElementById('radar-canvas')?.remove();
 buildBar();
 applyLang();
 
-// Show mobile hint on non-touch devices
-if(!window.matchMedia('(pointer:coarse)').matches){
-  document.getElementById('mobile-banner').style.display='flex';
-}
+
 
 
 document.getElementById('go-btn').addEventListener('click',async()=>{
@@ -876,11 +869,7 @@ document.getElementById('go-btn').addEventListener('click',async()=>{
   setupOrientation();
   setupGPS();
   loop();
-  // On PC, data still loads from hardcoded set
-  if(!S.dataOK && window.KEVARIM_DATA && window.KEVARIM_DATA.length){
-    S.cems=window.KEVARIM_DATA;S.dataOK=true;dot('d-dat','ok');
-    document.getElementById('cem-count').textContent=filteredCems().length;
-  }
+
 });
 
 // PULL TO REFRESH
@@ -938,6 +927,5 @@ document.getElementById('go-btn').addEventListener('click',async()=>{
 </script>
 <div id="ptr"><div id="ptr-inner"><span id="ptr-icon">↓</span><span id="ptr-txt"></span></div></div>
 
-<div id="mobile-banner"><span>📱 Best experienced on mobile</span><button onclick="this.parentElement.style.display='none'">×</button></div>
 </body>
 </html>
